@@ -1,0 +1,555 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Объединение заказов по точкам с группировкой по цехам</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+        }
+        h1 {
+            color: #333;
+        }
+        .container {
+            margin-bottom: 20px;
+        }
+        table {
+            border-collapse: collapse;
+            width: 100%;
+            margin-top: 20px;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+        }
+        th {
+            background-color: #f2f2f2;
+            position: sticky;
+            top: 0;
+        }
+        tr:nth-child(even) {
+            background-color: #f9f9f9;
+        }
+        .file-input {
+            margin-bottom: 10px;
+        }
+        button {
+            padding: 10px 15px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            cursor: pointer;
+            margin-right: 10px;
+            margin-bottom: 10px;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        .summary {
+            margin-top: 20px;
+            padding: 15px;
+            background-color: #e9f7ef;
+            border-radius: 5px;
+        }
+        .point-name {
+            background-color: #e1f5fe;
+            font-weight: bold;
+        }
+        .discrepancy {
+            background-color: #ffcdd2;
+        }
+        .point-container {
+            margin-bottom: 15px;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        .add-point-btn {
+            background-color: #2196F3;
+        }
+        .remove-point-btn {
+            background-color: #f44336;
+        }
+        .scroll-container {
+            overflow-x: auto;
+        }
+        .workshop-header {
+            background-color: #d1c4e9;
+            font-weight: bold;
+        }
+        .workshop-subheader {
+            background-color: #ede7f6;
+        }
+    </style>
+</head>
+<body>
+    <h1>Объединение подтверждений заказов по точкам с группировкой по цехам</h1>
+    
+    <div class="container">
+        <div id="pointsContainer">
+            <!-- Точки будут добавляться здесь -->
+        </div>
+        
+        <button class="add-point-btn" onclick="addPoint()">+ Добавить точку</button>
+        
+        <div>
+            <button onclick="processFiles()">Обработать файлы</button>
+            <button onclick="exportToExcel()">Экспорт в Excel</button>
+            <button onclick="clearData()">Очистить данные</button>
+        </div>
+    </div>
+    
+    <div id="summary" class="summary" style="display: none;">
+        <h3>Сводная информация:</h3>
+        <p>Обработано файлов: <span id="filesProcessed">0</span></p>
+        <p>Всего уникальных позиций: <span id="totalItems">0</span></p>
+        <p>Позиций с расхождениями: <span id="itemsWithDiscrepancies">0</span></p>
+    </div>
+    
+    <div class="scroll-container">
+        <table id="resultTable">
+            <thead id="tableHeader">
+                <!-- Заголовки будут генерироваться динамически -->
+            </thead>
+            <tbody id="tableBody">
+                <!-- Данные будут добавляться здесь -->
+            </tbody>
+        </table>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script>
+        let combinedData = {};
+        let points = [];
+        
+        // Маппинг артикулов на цеха
+        const workshopMapping = {
+            // Пекарня цех
+            '40000879': 'Пекарня цех',
+            '20000952': 'Пекарня цех',
+            '114822': 'Пекарня цех',
+            '114825': 'Пекарня цех',
+            '114824': 'Пекарня цех',
+            '20000953': 'Пекарня цех',
+            
+            // Восточка цех
+            '114961': 'Восточка цех',
+            '114800': 'Восточка цех',
+            '114803': 'Восточка цех',
+            '114805': 'Восточка цех',
+            '20000961': 'Восточка цех',
+            '114796': 'Восточка цех',
+            '114788': 'Восточка цех',
+            
+            // Пицца цех
+            '20000967': 'Пицца цех',
+            '20000968': 'Пицца цех',
+            '20000969': 'Пицца цех',
+            '20000966': 'Пицца цех',
+            '20000965': 'Пицца цех',
+            
+            // Колбасный цех
+            '40000880': 'Колбасный цех',
+            '40000881': 'Колбасный цех',
+            '114866': 'Колбасный цех',
+            
+            // Кухня
+            '40000884': 'Кухня',
+            '40000891': 'Кухня',
+            '40000883': 'Кухня',
+            '40000882': 'Кухня',
+            
+            // Заготовочный цех
+            '40000886': 'Заготовочный цех',
+            '40000885': 'Заготовочный цех',
+            '114948': 'Заготовочный цех',
+            '40000895': 'Заготовочный цех',
+            '40000894': 'Заготовочный цех',
+            '40000893': 'Заготовочный цех',
+            '40000821': 'Заготовочный цех',
+            '40000817': 'Заготовочный цех',
+            
+            // Мясной цех
+            '40000889': 'Мясной цех',
+            '20001106': 'Мясной цех',
+            '40000888': 'Мясной цех',
+            '20001105': 'Мясной цех',
+            '20001062': 'Мясной цех',
+            '20001050': 'Мясной цех',
+            '20001064': 'Мясной цех',
+            '20001091': 'Мясной цех',
+            '20001063': 'Мясной цех',
+            '20001084': 'Мясной цех',
+            '40000818': 'Мясной цех',
+            '20001061': 'Мясной цех',
+            '40000819': 'Мясной цех',
+            '40000824': 'Мясной цех',
+            '40000823': 'Мясной цех',
+            '40000906': 'Мясной цех',
+            '40000913': 'Мясной цех'
+        };
+        
+        // Функция для определения цеха по артикулу
+        function getWorkshop(article) {
+            return workshopMapping[article] || 'Неизвестный цех';
+        }
+        
+        // Инициализация 2 точек по умолчанию
+        document.addEventListener('DOMContentLoaded', function() {
+            for (let i = 0; i < 2; i++) {
+                addPoint();
+            }
+        });
+        
+        function addPoint() {
+            const pointId = points.length;
+            const pointContainer = document.createElement('div');
+            pointContainer.className = 'point-container';
+            pointContainer.id = `point-${pointId}-container`;
+            
+            pointContainer.innerHTML = `
+                <div>
+                    <label for="fileInput${pointId}">Файл для точки ${pointId + 1}:</label>
+                    <input type="file" id="fileInput${pointId}" class="file-input" accept=".xlsx,.xls">
+                </div>
+                <div>
+                    <label for="pointName${pointId}">Название точки ${pointId + 1}:</label>
+                    <input type="text" id="pointName${pointId}" placeholder="Введите название точки" value="Точка ${pointId + 1}">
+                </div>
+                <button class="remove-point-btn" onclick="removePoint(${pointId})">Удалить точку</button>
+            `;
+            
+            document.getElementById('pointsContainer').appendChild(pointContainer);
+            points.push({
+                id: pointId,
+                name: `Точка ${pointId + 1}`
+            });
+        }
+        
+        function removePoint(pointId) {
+            if (points.length <= 1) {
+                alert('Должна остаться хотя бы одна точка');
+                return;
+            }
+            
+            const container = document.getElementById(`point-${pointId}-container`);
+            if (container) {
+                container.remove();
+            }
+            
+            points = points.filter(p => p.id !== pointId);
+            // Перенумеровываем оставшиеся точки
+            points.forEach((p, index) => {
+                p.id = index;
+                const container = document.getElementById(`point-${p.id}-container`);
+                if (container) {
+                    container.querySelector('label[for^="fileInput"]').textContent = `Файл для точки ${index + 1}:`;
+                    container.querySelector('label[for^="pointName"]').textContent = `Название точки ${index + 1}:`;
+                    container.querySelector('input[id^="pointName"]').placeholder = `Введите название точки ${index + 1}`;
+                }
+            });
+        }
+        
+        function processFiles() {
+            // Обновляем названия точек
+            points.forEach((point, index) => {
+                const nameInput = document.getElementById(`pointName${index}`);
+                if (nameInput) {
+                    point.name = nameInput.value || `Точка ${index + 1}`;
+                }
+            });
+            
+            // Проверяем, что хотя бы один файл выбран
+            const hasFiles = points.some((point, index) => {
+                const fileInput = document.getElementById(`fileInput${index}`);
+                return fileInput && fileInput.files.length > 0;
+            });
+            
+            if (!hasFiles) {
+                alert('Пожалуйста, выберите хотя бы один файл');
+                return;
+            }
+            
+            combinedData = {}; // Сбрасываем предыдущие данные
+            
+            const processPromises = points.map((point, pointIndex) => {
+                return new Promise((resolve) => {
+                    const fileInput = document.getElementById(`fileInput${pointIndex}`);
+                    if (!fileInput || !fileInput.files[0]) {
+                        resolve();
+                        return;
+                    }
+                    
+                    const file = fileInput.files[0];
+                    const reader = new FileReader();
+                    
+                    reader.onload = function(e) {
+                        const data = new Uint8Array(e.target.result);
+                        const workbook = XLSX.read(data, { type: 'array' });
+                        
+                        const firstSheetName = workbook.SheetNames[0];
+                        const worksheet = workbook.Sheets[firstSheetName];
+                        const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+                        
+                        // Находим строку с заголовками
+                        let headerRowIndex = -1;
+                        for (let i = 0; i < jsonData.length; i++) {
+                            if (jsonData[i] && jsonData[i][0] === 'Артикул') {
+                                headerRowIndex = i;
+                                break;
+                            }
+                        }
+                        
+                        if (headerRowIndex === -1) {
+                            console.error('Не удалось найти строку с заголовками в файле', file.name);
+                            resolve();
+                            return;
+                        }
+                        
+                        // Обрабатываем данные
+                        for (let i = headerRowIndex + 1; i < jsonData.length; i++) {
+                            const row = jsonData[i];
+                            if (!row || row.length < 11) continue;
+                            
+                            const article = row[0] || '';
+                            if (!article) continue;
+                            
+                            const workshop = getWorkshop(article);
+                            
+                            if (!combinedData[workshop]) {
+                                combinedData[workshop] = {};
+                            }
+                            
+                            if (!combinedData[workshop][article]) {
+                                combinedData[workshop][article] = {
+                                    name: row[1] || '',
+                                    packaging: row[2] || '',
+                                    points: Array(points.length).fill(null),
+                                    totalOrdered: 0,
+                                    totalConfirmed: 0,
+                                    totalDiscrepancy: 0
+                                };
+                            }
+                            
+                            // Данные для текущей точки
+                            combinedData[workshop][article].points[pointIndex] = {
+                                ordered: row[6] || 0,
+                                confirmed: row[7] || 0,
+                                discrepancy: row[10] || 0
+                            };
+                            
+                            // Обновляем итоговые значения
+                            combinedData[workshop][article].totalOrdered += parseFloat(row[8] || 0);
+                            combinedData[workshop][article].totalConfirmed += parseFloat(row[9] || 0);
+                            combinedData[workshop][article].totalDiscrepancy += parseFloat(row[10] || 0);
+                        }
+                        
+                        resolve();
+                    };
+                    
+                    reader.readAsArrayBuffer(file);
+                });
+            });
+            
+            Promise.all(processPromises).then(() => {
+                updateTable();
+                updateSummary();
+            });
+        }
+        
+        function updateTable() {
+            const tableHeader = document.getElementById('tableHeader');
+            const tableBody = document.getElementById('tableBody');
+            
+            // Очищаем таблицу
+            tableHeader.innerHTML = '';
+            tableBody.innerHTML = '';
+            
+            // Создаем заголовки таблицы
+            const headerRow1 = document.createElement('tr');
+            const headerRow2 = document.createElement('tr');
+            
+            // Колонки для артикула, названия и фасовки
+            headerRow1.innerHTML = '<th rowspan="2">Цех</th><th rowspan="2">Артикул</th><th rowspan="2">Название</th><th rowspan="2">Фасовка</th>';
+            
+            // Колонки для каждой точки
+            points.forEach((point, index) => {
+                const pointHeader = document.createElement('th');
+                pointHeader.colSpan = 3;
+                pointHeader.textContent = point.name;
+                pointHeader.className = 'point-name';
+                headerRow1.appendChild(pointHeader);
+                
+                // Подколонки для каждой точки
+                headerRow2.innerHTML += `
+                    <th class="point-name">Заказано</th>
+                    <th class="point-name">Подтверждено</th>
+                    <th class="point-name">Расхождение</th>
+                `;
+            });
+            
+            // Итоговые колонки
+            headerRow1.innerHTML += '<th rowspan="2">Итого заказано</th><th rowspan="2">Итого подтверждено</th><th rowspan="2">Общее расхождение</th>';
+            
+            tableHeader.appendChild(headerRow1);
+            tableHeader.appendChild(headerRow2);
+            
+            // Заполняем таблицу данными с группировкой по цехам
+            Object.entries(combinedData).sort().forEach(([workshop, articles]) => {
+                // Добавляем заголовок цеха
+                const workshopRow = document.createElement('tr');
+                workshopRow.className = 'workshop-header';
+                workshopRow.innerHTML = `<td colspan="${4 + points.length * 3 + 3}">${workshop}</td>`;
+                tableBody.appendChild(workshopRow);
+                
+                // Добавляем подзаголовки колонок
+                const subheaderRow = document.createElement('tr');
+                subheaderRow.className = 'workshop-subheader';
+                subheaderRow.innerHTML = '<td></td><td>Артикул</td><td>Название</td><td>Фасовка</td>';
+                
+                points.forEach(() => {
+                    subheaderRow.innerHTML += '<td>Заказано</td><td>Подтверждено</td><td>Расхождение</td>';
+                });
+                
+                subheaderRow.innerHTML += '<td>Итого заказано</td><td>Итого подтверждено</td><td>Общее расхождение</td>';
+                tableBody.appendChild(subheaderRow);
+                
+                // Добавляем строки с данными для этого цеха
+                Object.entries(articles).forEach(([article, data]) => {
+                    const row = document.createElement('tr');
+                    
+                    // Проверяем есть ли расхождения
+                    const hasDiscrepancy = data.totalDiscrepancy !== 0 || 
+                        data.points.some(p => p && p.discrepancy !== 0);
+                    
+                    if (hasDiscrepancy) {
+                        row.classList.add('discrepancy');
+                    }
+                    
+                    // Ячейки с основной информацией
+                    let rowHtml = `
+                        <td></td>
+                        <td>${article}</td>
+                        <td>${data.name}</td>
+                        <td>${data.packaging}</td>
+                    `;
+                    
+                    // Ячейки для каждой точки
+                    points.forEach((point, pointIndex) => {
+                        const pointData = data.points[pointIndex];
+                        rowHtml += pointData ? `
+                            <td>${pointData.ordered}</td>
+                            <td>${pointData.confirmed}</td>
+                            <td>${pointData.discrepancy}</td>
+                        ` : `
+                            <td>-</td>
+                            <td>-</td>
+                            <td>-</td>
+                        `;
+                    });
+                    
+                    // Итоговые ячейки
+                    rowHtml += `
+                        <td>${data.totalOrdered}</td>
+                        <td>${data.totalConfirmed}</td>
+                        <td>${data.totalDiscrepancy}</td>
+                    `;
+                    
+                    row.innerHTML = rowHtml;
+                    tableBody.appendChild(row);
+                });
+            });
+        }
+        
+        function updateSummary() {
+            let totalItems = 0;
+            let itemsWithDiscrepancies = 0;
+            
+            // Подсчитываем общее количество позиций и позиций с расхождениями
+            Object.values(combinedData).forEach(articles => {
+                totalItems += Object.keys(articles).length;
+                
+                itemsWithDiscrepancies += Object.values(articles).filter(item => 
+                    item.totalDiscrepancy !== 0 || 
+                    item.points.some(p => p && p.discrepancy !== 0)
+                ).length;
+            });
+            
+            const filesProcessed = points.filter((point, index) => {
+                const fileInput = document.getElementById(`fileInput${index}`);
+                return fileInput && fileInput.files.length > 0;
+            }).length;
+            
+            document.getElementById('filesProcessed').textContent = filesProcessed;
+            document.getElementById('totalItems').textContent = totalItems;
+            document.getElementById('itemsWithDiscrepancies').textContent = itemsWithDiscrepancies;
+            document.getElementById('summary').style.display = 'block';
+        }
+        
+        function exportToExcel() {
+            if (Object.keys(combinedData).length === 0) {
+                alert('Нет данных для экспорта');
+                return;
+            }
+            
+            // Подготовка данных для экспорта
+            const exportData = [
+                ['Цех', 'Артикул', 'Название', 'Фасовка', 
+                 ...points.flatMap(p => [`${p.name} - Заказано`, `${p.name} - Подтверждено`, `${p.name} - Расхождение`]),
+                 'Итого заказано', 'Итого подтверждено', 'Общее расхождение']
+            ];
+            
+            // Добавляем данные с группировкой по цехам
+            Object.entries(combinedData).sort().forEach(([workshop, articles]) => {
+                // Добавляем строку с названием цеха
+                exportData.push([workshop, '', '', '', ...Array(points.length * 3 + 3).fill('')]);
+                
+                // Добавляем данные для каждого артикула в цехе
+                Object.entries(articles).forEach(([article, data]) => {
+                    const rowData = [
+                        '', // Пустое поле вместо повторяющегося названия цеха
+                        article,
+                        data.name,
+                        data.packaging,
+                        ...points.flatMap((point, pointIndex) => {
+                            const pointData = data.points[pointIndex];
+                            return pointData ? 
+                                [pointData.ordered, pointData.confirmed, pointData.discrepancy] : 
+                                ['-', '-', '-'];
+                        }),
+                        data.totalOrdered,
+                        data.totalConfirmed,
+                        data.totalDiscrepancy
+                    ];
+                    
+                    exportData.push(rowData);
+                });
+            });
+            
+            const ws = XLSX.utils.aoa_to_sheet(exportData);
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, "Объединенные заказы");
+            
+            // Генерируем имя файла с текущей датой
+            const today = new Date();
+            const dateStr = today.toISOString().split('T')[0];
+            const pointNames = points.map(p => p.name.replace(/\s+/g, '_')).join('_');
+            XLSX.writeFile(wb, `Объединенные_заказы_по_цехам_${pointNames}_${dateStr}.xlsx`);
+        }
+        
+        function clearData() {
+            combinedData = {};
+            points.forEach((point, index) => {
+                const fileInput = document.getElementById(`fileInput${index}`);
+                if (fileInput) fileInput.value = '';
+            });
+            document.getElementById('tableHeader').innerHTML = '';
+            document.getElementById('tableBody').innerHTML = '';
+            document.getElementById('summary').style.display = 'none';
+        }
+    </script>
+</body>
+</html>
